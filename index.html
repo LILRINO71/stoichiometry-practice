@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:">
+<title>Stoichiometry Practice</title>
+<link rel="icon" href="data:,">
+<style>
+  :root { --bg:#f4f6f8; --card:#fff; --text:#1b1f24; --muted:#5b6672; --line:#d5dbe1; --accent:#1d5fd1; --good:#146c2e; --bad:#a61b1b; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#111418; --card:#1b2027; --text:#e8ebee; --muted:#9aa5b1; --line:#333b45; --accent:#6ea8ff; --good:#6fd08c; --bad:#ff8a8a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.5 system-ui, sans-serif; }
+  main { max-width:620px; margin:0 auto; padding:16px; }
+  h1 { font-size:1.35rem; margin:4px 0; }
+  .bar { display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px; color:var(--muted); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:12px; }
+  .eq { font-size:1.2rem; font-weight:600; text-align:center; margin:12px 0; overflow-wrap:anywhere; }
+  select, input, button { font:inherit; color:inherit; border:1px solid var(--line); border-radius:8px; background:var(--card); padding:10px 12px; min-height:44px; }
+  button { cursor:pointer; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:var(--bg); font-weight:600; width:100%; margin-top:12px; }
+  .row { display:flex; gap:8px; align-items:center; }
+  .row input { flex:1; min-width:0; }
+  fieldset { border:0; padding:0; margin:0 0 12px; }
+  fieldset label { display:flex; gap:10px; align-items:center; border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin-top:6px; }
+  .good { color:var(--good); } .bad { color:var(--bad); }
+  #msg { font-weight:600; margin:10px 0 0; }
+  ol { padding-left:20px; } li { margin-bottom:8px; overflow-wrap:anywhere; }
+  .hint { color:var(--muted); font-size:.9rem; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Stoichiometry Practice</h1>
+  <div class="bar">
+    <label>Type
+      <select id="mode">
+        <option value="mixed">Mixed</option>
+        <option value="ratio">Mole ratio</option>
+        <option value="limiting">Limiting reactant</option>
+      </select>
+    </label>
+    <span id="score" aria-live="polite"></span>
+  </div>
+
+  <form class="card" id="form" novalidate autocomplete="off">
+    <div class="eq" id="equation"></div>
+    <p id="question"></p>
+    <fieldset id="choices"></fieldset>
+    <label for="answer" id="answerLabel"></label>
+    <div class="row">
+      <input id="answer" type="text" inputmode="decimal">
+      <span id="unit"></span>
+    </div>
+    <p class="hint">Use 3 significant figures. Answers within 1.5% count.</p>
+    <p id="msg" role="status"></p>
+    <button class="primary" id="check" type="submit">Check answer</button>
+    <button class="primary" id="next" type="button" hidden>Next problem</button>
+  </form>
+
+  <section class="card" id="solution" hidden>
+    <strong>Worked solution</strong>
+    <ol id="steps"></ol>
+  </section>
+</main>
+
+<script id="core">
+const MASS = { H:1.008, C:12.011, N:14.007, O:15.999, Na:22.990, Mg:24.305, Al:26.982, P:30.974,
+  S:32.06, Cl:35.45, K:39.098, Ca:40.078, Fe:55.845, Cu:63.546, Zn:65.38, Ag:107.868 };
+
+// [reactants, products] as [coefficient, formula]
+const REACTIONS = [
+  [[[2,"H2"],[1,"O2"]], [[2,"H2O"]]],
+  [[[1,"N2"],[3,"H2"]], [[2,"NH3"]]],
+  [[[1,"CH4"],[2,"O2"]], [[1,"CO2"],[2,"H2O"]]],
+  [[[1,"C3H8"],[5,"O2"]], [[3,"CO2"],[4,"H2O"]]],
+  [[[2,"C2H6"],[7,"O2"]], [[4,"CO2"],[6,"H2O"]]],
+  [[[4,"Fe"],[3,"O2"]], [[2,"Fe2O3"]]],
+  [[[4,"Al"],[3,"O2"]], [[2,"Al2O3"]]],
+  [[[2,"Mg"],[1,"O2"]], [[2,"MgO"]]],
+  [[[2,"Na"],[1,"Cl2"]], [[2,"NaCl"]]],
+  [[[2,"Al"],[3,"Cl2"]], [[2,"AlCl3"]]],
+  [[[1,"Zn"],[2,"HCl"]], [[1,"ZnCl2"],[1,"H2"]]],
+  [[[2,"Al"],[6,"HCl"]], [[2,"AlCl3"],[3,"H2"]]],
+  [[[2,"NaOH"],[1,"H2SO4"]], [[1,"Na2SO4"],[2,"H2O"]]],
+  [[[1,"Ca(OH)2"],[2,"HCl"]], [[1,"CaCl2"],[2,"H2O"]]],
+  [[[1,"Fe2O3"],[3,"CO"]], [[2,"Fe"],[3,"CO2"]]],
+  [[[4,"NH3"],[5,"O2"]], [[4,"NO"],[6,"H2O"]]],
+  [[[1,"P4"],[5,"O2"]], [[1,"P4O10"]]],
+  [[[2,"SO2"],[1,"O2"]], [[2,"SO3"]]],
+  [[[1,"Cu"],[2,"AgNO3"]], [[1,"Cu(NO3)2"],[2,"Ag"]]],
+  [[[2,"K"],[2,"H2O"]], [[2,"KOH"],[1,"H2"]]]
+];
+
+function atoms(formula) {
+  const tokens = formula.match(/[A-Z][a-z]?|\d+|\(|\)/g);
+  const stack = [{}];
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t === "(") { stack.push({}); continue; }
+    const group = t === ")" ? stack.pop() : { [t]: 1 };
+    let n = 1;
+    if (/^\d+$/.test(tokens[i + 1])) n = Number(tokens[++i]);
+    const top = stack[stack.length - 1];
+    for (const el in group) top[el] = (top[el] || 0) + group[el] * n;
+  }
+  return stack[0];
+}
+
+// Rounded to 2 decimals so the shown value is the value used
+function molarMass(formula) {
+  const a = atoms(formula);
+  let m = 0;
+  for (const el in a) m += MASS[el] * a[el];
+  return Math.round(m * 100) / 100;
+}
+
+const sig3 = x => {
+  const s = x.toPrecision(3);
+  return s.includes("e") ? String(Number(s)) : s;
+};
+const pretty = f => f.replace(/([A-Za-z)])(\d+)/g, (_, a, n) => a + [...n].map(d => "₀₁₂₃₄₅₆₇₈₉"[d]).join(""));
+const equationText = r => r.map(side => side.map(([c, f]) => (c > 1 ? c + " " : "") + pretty(f)).join(" + ")).join(" → ");
+
+function makeProblem(type, rand = Math.random) {
+  const int = n => Math.floor(rand() * n);
+  const unit = () => (rand() < 0.5 ? "mol" : "g");
+  const index = int(REACTIONS.length);
+  const [reactants, products] = REACTIONS[index];
+  const amount = (moles, f, u) => Number((u === "g" ? moles * molarMass(f) : moles).toPrecision(3));
+  const toMoles = q => (q.unit === "g" ? q.value / molarMass(q.formula) : q.value);
+  const fromMoles = (n, f, u) => (u === "g" ? n * molarMass(f) : n);
+
+  if (type === "ratio") {
+    const all = reactants.concat(products);
+    const a = int(all.length);
+    const b = (a + 1 + int(all.length - 1)) % all.length;
+    const u = unit();
+    const given = { coef: all[a][0], formula: all[a][1], unit: u, value: amount(0.2 + rand() * 4.8, all[a][1], u) };
+    const target = { coef: all[b][0], formula: all[b][1], unit: unit() };
+    const answer = fromMoles(toMoles(given) * target.coef / given.coef, target.formula, target.unit);
+    return { type, index, given: [given], target, answer };
+  }
+
+  // Extents differ by at least 15% so the limiting reactant is never a near tie
+  const low = 0.2 + rand() * 1.8;
+  const high = low * (1.15 + rand() * 0.85);
+  const first = int(2);
+  const given = reactants.map(([coef, formula], i) => {
+    const u = unit();
+    return { coef, formula, unit: u, value: amount((i === first ? low : high) * coef, formula, u) };
+  });
+  const extent = given.map(q => toMoles(q) / q.coef);
+  const limiting = extent[0] < extent[1] ? 0 : 1;
+  const p = products[int(products.length)];
+  const target = { coef: p[0], formula: p[1], unit: unit() };
+  const answer = fromMoles(extent[limiting] * target.coef, target.formula, target.unit);
+  return { type: "limiting", index, given, target, limiting, answer };
+}
+
+function parseAnswer(text) {
+  const t = String(text).trim().replace(/^(\d*),(\d+)$/, "$1.$2");
+  if (!/^(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i.test(t)) return NaN;
+  return Number(t);
+}
+
+const amountOk = (value, answer) => Math.abs(value - answer) <= answer * 0.015;
+
+function solve(p) {
+  const steps = [];
+  const moles = p.given.map(q => {
+    const f = pretty(q.formula);
+    if (q.unit === "mol") { steps.push(`Moles of ${f} are given: ${sig3(q.value)} mol.`); return q.value; }
+    const n = q.value / molarMass(q.formula);
+    steps.push(`Convert grams to moles: ${sig3(q.value)} g ${f} ÷ ${molarMass(q.formula).toFixed(2)} g/mol = ${sig3(n)} mol ${f}.`);
+    return n;
+  });
+  let i = 0;
+  if (p.type === "limiting") {
+    i = p.limiting;
+    const parts = p.given.map((q, k) => `${pretty(q.formula)}: ${sig3(moles[k])} ÷ ${q.coef} = ${sig3(moles[k] / q.coef)}`);
+    steps.push(`Divide each by its coefficient. ${parts.join("; ")}. The smaller result runs out first, so ${pretty(p.given[i].formula)} is the limiting reactant.`);
+  }
+  const g = p.given[i], t = p.target, tf = pretty(t.formula);
+  const n = moles[i] * t.coef / g.coef;
+  steps.push(`Mole ratio: ${sig3(moles[i])} mol ${pretty(g.formula)} × (${t.coef} mol ${tf} / ${g.coef} mol ${pretty(g.formula)}) = ${sig3(n)} mol ${tf}.`);
+  if (t.unit === "g") steps.push(`Convert moles to grams: ${sig3(n)} mol × ${molarMass(t.formula).toFixed(2)} g/mol = ${sig3(p.answer)} g ${tf}.`);
+  steps.push(`Answer: ${sig3(p.answer)} ${t.unit} ${tf}. (Intermediate values are shown rounded; the calculation keeps full precision.)`);
+  return steps;
+}
+</script>
+
+<script>
+const $ = id => document.getElementById(id);
+let problem, answered, right = 0, total = 0, streak = 0;
+
+const showScore = () => { $("score").textContent = `Score ${right}/${total} · Streak ${streak}`; };
+const say = (text, cls) => { $("msg").textContent = text; $("msg").className = cls || ""; };
+
+function newProblem() {
+  const mode = $("mode").value;
+  problem = makeProblem(mode === "mixed" ? (Math.random() < 0.5 ? "ratio" : "limiting") : mode);
+  answered = false;
+  const p = problem, t = p.target;
+  const qty = q => `${sig3(q.value)} ${q.unit} of ${pretty(q.formula)}`;
+  const what = `${t.unit === "g" ? "What mass (in grams)" : "How many moles"} of ${pretty(t.formula)}`;
+  $("equation").textContent = equationText(REACTIONS[p.index]);
+  $("choices").replaceChildren();
+  $("choices").hidden = p.type !== "limiting";
+  if (p.type === "ratio") {
+    const made = REACTIONS[p.index][1];
+    const isProduct = f => made.some(x => x[1] === f);
+    const g = p.given[0];
+    const verb = isProduct(t.formula) ? (isProduct(g.formula) ? "is formed along with" : "can be formed from")
+      : (isProduct(g.formula) ? "is needed to produce" : "is needed to react with");
+    $("question").textContent = `${what} ${verb} ${qty(g)}? Assume the reaction goes to completion with enough of everything else.`;
+    $("answerLabel").textContent = "Your answer";
+  } else {
+    $("question").textContent = `You mix ${qty(p.given[0])} with ${qty(p.given[1])}. Which reactant is limiting, and ${what.charAt(0).toLowerCase() + what.slice(1)} can form?`;
+    const legend = document.createElement("legend");
+    legend.textContent = "Limiting reactant";
+    $("choices").append(legend);
+    p.given.forEach((q, i) => {
+      const label = document.createElement("label");
+      const radio = document.createElement("input");
+      radio.type = "radio"; radio.name = "limiting"; radio.value = i;
+      label.append(radio, pretty(q.formula));
+      $("choices").append(label);
+    });
+    $("answerLabel").textContent = "Amount of product";
+  }
+  $("unit").textContent = `${t.unit} ${pretty(t.formula)}`;
+  $("answer").value = "";
+  $("answer").readOnly = false;
+  $("check").hidden = false;
+  $("next").hidden = true;
+  $("solution").hidden = true;
+  say("");
+}
+
+$("form").addEventListener("submit", e => {
+  e.preventDefault();
+  if (answered) return;
+  const choice = document.querySelector('input[name="limiting"]:checked');
+  if (problem.type === "limiting" && !choice) return say("Pick the limiting reactant first.", "bad");
+  const value = parseAnswer($("answer").value);
+  if (!Number.isFinite(value)) return say("Type a number, such as 2.45", "bad");
+
+  const numberOk = amountOk(value, problem.answer);
+  const choiceOk = problem.type !== "limiting" || Number(choice.value) === problem.limiting;
+  const ok = numberOk && choiceOk;
+  answered = true;
+  total++; if (ok) { right++; streak++; } else streak = 0;
+  showScore();
+
+  let text = ok ? "Correct!" : "Not quite.";
+  if (!ok && problem.type === "limiting") {
+    text += ` Limiting reactant: ${choiceOk ? "right" : "wrong"}. Amount: ${numberOk ? "right" : "wrong"}.`;
+  }
+  say(`${text} Answer: ${sig3(problem.answer)} ${problem.target.unit}`, ok ? "good" : "bad");
+  $("steps").replaceChildren(...solve(problem).map(s => Object.assign(document.createElement("li"), { textContent: s })));
+  $("solution").hidden = false;
+  $("answer").readOnly = true;
+  document.querySelectorAll('input[name="limiting"]').forEach(r => { r.disabled = true; });
+  $("check").hidden = true;
+  $("next").hidden = false;
+  $("next").focus({ preventScroll: true });
+});
+$("next").addEventListener("click", newProblem);
+$("mode").addEventListener("change", newProblem);
+showScore();
+newProblem();
+</script>
+</body>
+</html>
